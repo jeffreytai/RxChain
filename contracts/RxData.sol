@@ -1,9 +1,16 @@
 pragma solidity ^0.4.17;
 
 import "./RxDataBase.sol";
+import "./Ownable.sol";
+import "./AccessControl.sol";
+import "./SafeMath.sol";
 
-contract RxData is RxDataBase {
+contract RxData is RxDataBase, Ownable, AccessControl, SafeMath {
 
+    // Member variables
+    uint256 totalMedication;
+
+    // Entity mappings
     mapping(address => Manufacturer) public manufacturers;
     mapping(address => Wholesaler) public wholesalers;
     mapping(address => Pharmacy) public pharmacies;
@@ -11,7 +18,7 @@ contract RxData is RxDataBase {
     mapping(uint256 => Medication) public medications;
     mapping(uint256 => Prescription) public prescriptions;
 
-
+    // Modifiers for access control
     modifier onlyManufacturer (address _addr) {
         require (manufacturers[_addr] != 0);
         _;
@@ -27,11 +34,11 @@ contract RxData is RxDataBase {
         _;
     }
 
-    enum Status {
-        MANUFACTURED,
-        DISTRIBUTED, // at wholesale
-        DISPENSED, // at pharmacy
-        SOLD // given to patient
+    enum PrescriptionStatus {
+        AT_MANUFACTURER,
+        AT_WHOLESALE,
+        AT_PHARMACY,
+        WITH_PATIENT
     }
 
     struct Manufacturer {
@@ -71,6 +78,7 @@ contract RxData is RxDataBase {
         uint256 prescriptionId;
         uint256 medicationId;
         // Allows for tracking throughout the process
+        PrescriptionStatus prescriptionStatus;
         address wholesalerAddr;
         address pharmacyAddr;
         address patientAddr;
@@ -135,6 +143,7 @@ contract RxData is RxDataBase {
             _patientPrice);
         medications[totalMedication] = m;
 
+        // Increment counter for the total number of medications
         totalMedication += 1;
     }
 
@@ -175,4 +184,91 @@ contract RxData is RxDataBase {
     function removePrescription(uint256 _prescriptionId) public onlyPharmacyOrPatient {
         delete prescriptions[_prescriptionId];
     }
+
+    /**
+     * Identify payment sender and check that the payment amount is correct
+     */
+    function acknowledgeReceipt(uint256 _prescriptionId) public payable returns (bool) {
+        Prescription storage p = prescriptions[_prescriptionId];
+        Medication memory med = medications[p.medicationId];
+
+        uint256 paymentAmount = msg.value;
+
+        // Wholesaler received prescription from manufacturer
+        if (p.prescriptionStatus == PrescriptionStatus.AT_MANUFACTURER && wholesalers[msg.sender] != 0) {
+            // Confirm sufficient payment
+            require(paymentAmount < med.wholesalePrice);
+
+            // Update prescription information
+            p.wholesalerAddr = msg.sender;
+            upgradeStatus();
+
+            // Pay manufacturer the wholesale price
+            med.manufacturerAddr.transfer(med.wholesalePrice);
+
+            // Refund difference for any extra payment
+            if (paymentAmount > med.wholesalePrice) {
+                msg.sender.transfer(SafeMath.sub(paymentAmount, med.wholesalePrice));
+            }
+
+            return true;
+        }
+        // Pharmacy received prescription from wholesaler
+        else if (p.prescriptionStatus == PrescriptionStatus.AT_WHOLESALE && pharmacies[msg.sender] != 0) {
+            // Confirm sufficient payment
+            require(paymentAmount < med.pharmacyPrice);
+
+            // Update prescription information
+            p.pharmacyAddr = msg.sender;
+            upgradeStatus();
+
+            // Pay wholesaler the pharmacy price
+            p.wholesalerAddr.transfer(med.pharmacyPrice);
+
+            // Refund difference for any extra payment
+            if (paymentAmount > med.pharmacyPrice) {
+                msg.sender.transfer(SafeMath.sub(paymentAmount, med.pharmacyPrice));
+            }
+
+            return true;
+        }
+        // Patient received prescription from pharmacy
+        else if (p.PrescriptionStatus == PrescriptionStatus.AT_PHARMACY && patients[msg.sender] != 0) {
+            // Confirm sufficient payment
+            require(paymentAmount < med.patientPrice);
+
+            // Update prescription information
+            p.patientAddr = msg.sender;
+            upgradeStatus();
+
+            // Pay pharmacy the patient price
+            p.pharmacyAddr.transfer(med.patientPrice);
+
+            // Refund difference for any extra payment
+            if (paymentAmount > med.patientPrice) {
+                msg.sender.transfer(SafeMath.sub(paymentAmount, med.patientPrice));
+            }
+
+            return true;
+        }
+
+        /**
+         * No action was taken, could be a variety of reasons:
+         * -Payment sender is not registered as any entity (manufacturer, wholesaler, pharmacy, or patient)
+         * -Payment sender and current prescription status is not compatible. E.g. patient cannot be sending money when the prescription is still at the manufacturer
+         */
+        return false;
+    }
+
+    function upgradeStatus(uint256 _prescriptionId) internal {
+        Prescription storage p = Prescription[_prescriptionId];
+
+        // Mark the PrescriptionStatus as the next status
+        p.prescriptionStatus = PrescriptionStatus(uint(p.PrescriptionStatus) + 1);
+    }
+
+    /**
+     * Fallback function to accept ether sent to this contract
+     */
+    function () payable { }
 }

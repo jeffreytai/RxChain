@@ -1,7 +1,6 @@
-pragma solidity 0.4.20;
+pragma solidity 0.4.19;
 
 import "./RxDataBase.sol";
-import "./Ownable.sol";
 import "./AccessControl.sol";
 import "./SafeMath.sol";
 
@@ -274,6 +273,24 @@ contract RxData is RxDataBase, AccessControl {
         // Mark the PrescriptionStatus as the next status
         p.prescriptionStatus = PrescriptionStatus(uint(p.prescriptionStatus) + 1);
     }
+
+    function getPrescriptionStatus(uint256 _prescriptionId) view external returns (bytes32) {
+        Prescription memory p = prescriptions[_prescriptionId];
+
+        if (p.prescriptionStatus == PrescriptionStatus.AT_MANUFACTURER) {
+            return "At Manufacturer";
+        }
+        else if (p.prescriptionStatus == PrescriptionStatus.AT_WHOLESALE) {
+            return "At Wholesale";
+        }
+        else if (p.prescriptionStatus == PrescriptionStatus.AT_PHARMACY) {
+            return "At Pharmacy";
+        }
+        else {
+            return "With Patient";
+        }
+    }
+
 
     /**
      * Withdraw current ether balance to sender if exists

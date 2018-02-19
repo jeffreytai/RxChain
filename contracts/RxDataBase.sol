@@ -1,4 +1,4 @@
-pragma solidity 0.4.20;
+pragma solidity 0.4.19;
 
 interface RxDataBase {
 
@@ -32,5 +32,5 @@ interface RxDataBase {
 
 
     // Read data
-
+    function getPrescriptionStatus(uint256 _prescriptionId) view external returns (bytes32);
 }

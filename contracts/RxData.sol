@@ -1,11 +1,11 @@
-pragma solidity ^0.4.17;
+pragma solidity 0.4.20;
 
 import "./RxDataBase.sol";
 import "./Ownable.sol";
 import "./AccessControl.sol";
 import "./SafeMath.sol";
 
-contract RxData is RxDataBase, Ownable, AccessControl, SafeMath {
+contract RxData is RxDataBase, AccessControl {
 
     // Member variables
     uint256 totalMedication;
@@ -17,20 +17,24 @@ contract RxData is RxDataBase, Ownable, AccessControl, SafeMath {
     mapping(address => Patient) public patients;
     mapping(uint256 => Medication) public medications;
     mapping(uint256 => Prescription) public prescriptions;
+    mapping(address => uint256) public balances;
+
+    // Events
+    event LogDepositReceived(address _from, uint256 _value);
 
     // Modifiers for access control
     modifier onlyManufacturer (address _addr) {
-        require (manufacturers[_addr] != 0);
+        require (manufacturers[_addr].addr != address(0));
         _;
     }
 
     modifier onlyPharmacy (address _addr) {
-        require (pharmacies[_addr] != 0);
+        require (pharmacies[_addr].addr != address(0));
         _;
     }
 
     modifier onlyPharmacyOrPatient (address _addr) {
-        require (pharmacies[_addr] != 0 || patients[_addr] != 0);
+        require (pharmacies[_addr].addr != address(0) || patients[_addr].addr != address(0));
         _;
     }
 
@@ -91,39 +95,39 @@ contract RxData is RxDataBase, Ownable, AccessControl, SafeMath {
     }
 
     // Implementations of RxDataBase
-    function registerManufacturer(address _manufacturerAddr, bytes16 _name) onlyAuthorized public {
+    function registerManufacturer(address _manufacturerAddr, bytes16 _name) onlyAuthorized external {
         Manufacturer memory m = Manufacturer(_manufacturerAddr, _name);
         manufacturers[_manufacturerAddr] = m;
     }
 
-    function removeManufacturer(address _manufacturerAddr) onlyAuthorized public {
+    function removeManufacturer(address _manufacturerAddr) onlyAuthorized external {
         delete manufacturers[_manufacturerAddr];
     }
 
-    function registerWholesaler(address _wholesalerAddr, bytes16 _name) onlyAuthorized public {
+    function registerWholesaler(address _wholesalerAddr, bytes16 _name) onlyAuthorized external {
         Wholesaler memory w = Wholesaler(_wholesalerAddr, _name);
         wholesalers[_wholesalerAddr] = w;
     }
 
-    function removeWholesaler(address _wholesalerAddr) onlyAuthorized public {
+    function removeWholesaler(address _wholesalerAddr) onlyAuthorized external {
         delete wholesalers[_wholesalerAddr];
     }
 
-    function registerPharmacy(address _pharmacyAddr, bytes16 _name) onlyAuthorized public {
+    function registerPharmacy(address _pharmacyAddr, bytes16 _name) onlyAuthorized external {
         Pharmacy memory p = Pharmacy(_pharmacyAddr, _name);
         pharmacies[_pharmacyAddr] = p;
     }
 
-    function removePharmacy(address _pharmacyAddr) onlyAuthorized public {
+    function removePharmacy(address _pharmacyAddr) onlyAuthorized external {
         delete pharmacies[_pharmacyAddr];
     }
 
-    function registerPatient(address _patientAddr) public {
+    function registerPatient(address _patientAddr) external {
         Patient memory p = Patient(_patientAddr);
         patients[_patientAddr] = p;
     }
 
-    function removePatient(address _patientAddr) public {
+    function removePatient(address _patientAddr) external {
         delete patients[_patientAddr];
     }
 
@@ -132,7 +136,7 @@ contract RxData is RxDataBase, Ownable, AccessControl, SafeMath {
         bytes32 _serialNumber,
         uint8 _wholesalePrice,
         uint8 _pharmacyPrice,
-        uint8 _patientPrice) onlyManufacturer public {
+        uint8 _patientPrice) onlyManufacturer(msg.sender) external {
 
         Medication memory m = Medication(
             totalMedication,
@@ -147,7 +151,7 @@ contract RxData is RxDataBase, Ownable, AccessControl, SafeMath {
         totalMedication += 1;
     }
 
-    function removeMedication(uint256 medicationId) onlyManufacturer public {
+    function removeMedication(uint256 medicationId) onlyManufacturer(msg.sender) external {
         delete medications[medicationId];
         totalMedication -= 1;
     }
@@ -161,7 +165,7 @@ contract RxData is RxDataBase, Ownable, AccessControl, SafeMath {
         uint64 _manufactureCreationDate,
         uint64 _wholesaleReceiptDate,
         uint64 _pharmacyReceiptDate,
-        uint64 _patientReceiptDate) onlyPharmacy public {
+        uint64 _patientReceiptDate) onlyPharmacy(msg.sender) external {
 
         // Change this to keccak hash
         uint256 prescriptionId = 1;
@@ -169,6 +173,7 @@ contract RxData is RxDataBase, Ownable, AccessControl, SafeMath {
         Prescription memory p = Prescription(
             prescriptionId,
             _medicationId,
+            PrescriptionStatus.AT_MANUFACTURER,
             _wholesalerAddr,
             _pharmacyAddr,
             _patientAddr,
@@ -181,72 +186,72 @@ contract RxData is RxDataBase, Ownable, AccessControl, SafeMath {
         prescriptions[prescriptionId] = p;
     }
 
-    function removePrescription(uint256 _prescriptionId) public onlyPharmacyOrPatient {
+    function removePrescription(uint256 _prescriptionId) external onlyPharmacyOrPatient(msg.sender) {
         delete prescriptions[_prescriptionId];
     }
 
     /**
      * Identify payment sender and check that the payment amount is correct
      */
-    function acknowledgeReceipt(uint256 _prescriptionId) public payable returns (bool) {
+    function acknowledgeReceipt(uint256 _prescriptionId) public payable stopInEmergency returns (bool) {
         Prescription storage p = prescriptions[_prescriptionId];
         Medication memory med = medications[p.medicationId];
 
         uint256 paymentAmount = msg.value;
 
         // Wholesaler received prescription from manufacturer
-        if (p.prescriptionStatus == PrescriptionStatus.AT_MANUFACTURER && wholesalers[msg.sender] != 0) {
+        if (p.prescriptionStatus == PrescriptionStatus.AT_MANUFACTURER && wholesalers[msg.sender].addr != address(0)) {
             // Confirm sufficient payment
             require(paymentAmount < med.wholesalePrice);
 
             // Update prescription information
             p.wholesalerAddr = msg.sender;
-            upgradeStatus();
+            upgradeStatus(_prescriptionId);
 
-            // Pay manufacturer the wholesale price
-            med.manufacturerAddr.transfer(med.wholesalePrice);
+            // Update manufacturer's balance with wholesale price
+            balances[med.manufacturerAddr] += med.wholesalePrice;
 
             // Refund difference for any extra payment
             if (paymentAmount > med.wholesalePrice) {
-                msg.sender.transfer(SafeMath.sub(paymentAmount, med.wholesalePrice));
+                balances[msg.sender] += SafeMath.sub(paymentAmount, med.wholesalePrice);
             }
 
             return true;
         }
         // Pharmacy received prescription from wholesaler
-        else if (p.prescriptionStatus == PrescriptionStatus.AT_WHOLESALE && pharmacies[msg.sender] != 0) {
+        else if (p.prescriptionStatus == PrescriptionStatus.AT_WHOLESALE && pharmacies[msg.sender].addr != address(0)) {
             // Confirm sufficient payment
             require(paymentAmount < med.pharmacyPrice);
 
             // Update prescription information
             p.pharmacyAddr = msg.sender;
-            upgradeStatus();
+            upgradeStatus(_prescriptionId);
 
-            // Pay wholesaler the pharmacy price
-            p.wholesalerAddr.transfer(med.pharmacyPrice);
+            // Update wholesaler's balance with pharmacy price
+            balances[p.wholesalerAddr] += med.pharmacyPrice;
 
             // Refund difference for any extra payment
             if (paymentAmount > med.pharmacyPrice) {
-                msg.sender.transfer(SafeMath.sub(paymentAmount, med.pharmacyPrice));
+                balances[msg.sender] += SafeMath.sub(paymentAmount, med.pharmacyPrice);
             }
 
             return true;
         }
         // Patient received prescription from pharmacy
-        else if (p.PrescriptionStatus == PrescriptionStatus.AT_PHARMACY && patients[msg.sender] != 0) {
+        else if (p.prescriptionStatus == PrescriptionStatus.AT_PHARMACY && patients[msg.sender].addr != address(0)) {
             // Confirm sufficient payment
             require(paymentAmount < med.patientPrice);
 
             // Update prescription information
             p.patientAddr = msg.sender;
-            upgradeStatus();
+            upgradeStatus(_prescriptionId);
 
-            // Pay pharmacy the patient price
-            p.pharmacyAddr.transfer(med.patientPrice);
+            // Update pharmacy's balance with patient price
+            balances[p.pharmacyAddr] += med.patientPrice;
 
             // Refund difference for any extra payment
             if (paymentAmount > med.patientPrice) {
-                msg.sender.transfer(SafeMath.sub(paymentAmount, med.patientPrice));
+                balances[msg.sender] += SafeMath.sub(paymentAmount, med.patientPrice);
             }
 
             return true;
@@ -260,15 +265,29 @@ contract RxData is RxDataBase, Ownable, AccessControl, SafeMath {
         return false;
     }
 
+    /**
+     * Upgrade status of Prescription
+     */
     function upgradeStatus(uint256 _prescriptionId) internal {
-        Prescription storage p = Prescription[_prescriptionId];
+        Prescription storage p = prescriptions[_prescriptionId];
 
         // Mark the PrescriptionStatus as the next status
-        p.prescriptionStatus = PrescriptionStatus(uint(p.PrescriptionStatus) + 1);
+        p.prescriptionStatus = PrescriptionStatus(uint(p.prescriptionStatus) + 1);
+    }
+
+    /**
+     * Withdraw current ether balance to sender if exists
+     */
+    function withdraw() public {
+        uint256 balance = balances[msg.sender];
+        balances[msg.sender] = 0;
+        msg.sender.transfer(balance);
     }
 
     /**
      * Fallback function to accept ether sent to this contract
      */
-    function () payable { }
+    function () payable public {
+        LogDepositReceived(msg.sender, msg.value);
+    }
 }

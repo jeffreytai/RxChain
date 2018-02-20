@@ -23,6 +23,20 @@ contract AccessControl is Ownable {
     }
 
     /**
+     * Add specified address to list of authorized
+     */
+    function addAuthorizedUser(address _addr) onlyOwner public {
+        if (_addr != address(0)) {
+            for (uint index=0; index<authorized.length; index++) {
+                if (authorized[index] == _addr) {
+                    return;
+                }
+            }
+            authorized.push(_addr);
+        }
+    }
+
+    /**
      * Prevent the function from being executed if "stopped" is currently on
      */
     modifier stopInEmergency {

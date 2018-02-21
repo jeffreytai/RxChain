@@ -1,3 +1,4 @@
+var Utils = artifacts.require("Utils");
 var Ownable = artifacts.require("Ownable");
 var SafeMath = artifacts.require("SafeMath");
 var AccessControl = artifacts.require("AccessControl");
@@ -5,11 +6,13 @@ var RxData = artifacts.require("RxData");
 
 module.exports = function(deployer) {
   // Base dependencies
+  deployer.deploy(Utils);
   deployer.deploy(Ownable);
   deployer.deploy(SafeMath);
 
   // Link dependencies to AccessControl
   deployer.link(Ownable, AccessControl);
+  deployer.link(Utils, AccessControl);
   deployer.deploy(AccessControl);
 
   // Link dependencies to RxData

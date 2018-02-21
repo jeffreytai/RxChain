@@ -28,9 +28,9 @@ interface RxDataBase {
         uint64 _wholesaleReceiptDate,
         uint64 _pharmacyReceiptDate,
         uint64 _patientReceiptDate) external;
-    function removePrescription(uint256 _prescriptionId) external;
+    function removePrescription(bytes32 _prescriptionHash) external;
 
 
     // Read data
-    function getPrescriptionStatus(uint256 _prescriptionId) view external returns (bytes32);
+    function getPrescriptionStatus(bytes32 _prescriptionHash) view external returns (bytes32);
 }

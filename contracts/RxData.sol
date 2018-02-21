@@ -15,7 +15,7 @@ contract RxData is RxDataBase, AccessControl {
     mapping(address => Pharmacy) public pharmacies;
     mapping(address => Patient) public patients;
     mapping(uint256 => Medication) public medications;
-    mapping(uint256 => Prescription) public prescriptions;
+    mapping(bytes32 => Prescription) public prescriptions;
     mapping(address => uint256) public balances;
 
     // Events
@@ -61,6 +61,7 @@ contract RxData is RxDataBase, AccessControl {
 
     struct Patient {
         address addr;
+        bytes32[] personalPrescriptions;
     }
 
     struct Medication {
@@ -75,10 +76,10 @@ contract RxData is RxDataBase, AccessControl {
     }
 
     /**
-     * TODO: Possibly change sequence ids to keccak hash of timestamp and other information
+     * Prescription hash (ID) is the keccak hash of the current timestamp, patient address, and medication id
      */
     struct Prescription {
-        uint256 prescriptionId;
+        bytes32 prescriptionHash;
         uint256 medicationId;
         // Allows for tracking throughout the process
         PrescriptionStatus prescriptionStatus;
@@ -122,7 +123,7 @@ contract RxData is RxDataBase, AccessControl {
     }
 
     function registerPatient(address _patientAddr) external {
-        Patient memory p = Patient(_patientAddr);
+        Patient memory p = Patient(_patientAddr, new bytes32[](0));
         patients[_patientAddr] = p;
     }
 
@@ -167,10 +168,10 @@ contract RxData is RxDataBase, AccessControl {
         uint64 _patientReceiptDate) onlyPharmacy(msg.sender) external {
 
         // Change this to keccak hash
-        uint256 prescriptionId = 1;
+        bytes32 prescriptionHash = keccak256(now, _patientAddr, _medicationId);
 
         Prescription memory p = Prescription(
-            prescriptionId,
+            prescriptionHash,
             _medicationId,
             PrescriptionStatus.AT_MANUFACTURER,
             _wholesalerAddr,
@@ -182,18 +183,18 @@ contract RxData is RxDataBase, AccessControl {
             _pharmacyReceiptDate,
             _patientReceiptDate);
 
-        prescriptions[prescriptionId] = p;
+        prescriptions[prescriptionHash] = p;
     }
 
-    function removePrescription(uint256 _prescriptionId) external onlyPharmacyOrPatient(msg.sender) {
-        delete prescriptions[_prescriptionId];
+    function removePrescription(bytes32 _prescriptionHash) external onlyPharmacyOrPatient(msg.sender) {
+        delete prescriptions[_prescriptionHash];
     }
 
     /**
      * Identify payment sender and check that the payment amount is correct
      */
-    function acknowledgeReceipt(uint256 _prescriptionId) public payable stopInEmergency returns (bool) {
-        Prescription storage p = prescriptions[_prescriptionId];
+    function acknowledgeReceipt(bytes32 _prescriptionHash) public payable stopInEmergency returns (bool) {
+        Prescription storage p = prescriptions[_prescriptionHash];
         Medication memory med = medications[p.medicationId];
 
         uint256 paymentAmount = msg.value;
@@ -205,7 +206,7 @@ contract RxData is RxDataBase, AccessControl {
 
             // Update prescription information
             p.wholesalerAddr = msg.sender;
-            upgradeStatus(_prescriptionId);
+            upgradeStatus(_prescriptionHash);
 
             // Update manufacturer's balance with wholesale price
             balances[med.manufacturerAddr] += med.wholesalePrice;
@@ -224,7 +225,7 @@ contract RxData is RxDataBase, AccessControl {
 
             // Update prescription information
             p.pharmacyAddr = msg.sender;
-            upgradeStatus(_prescriptionId);
+            upgradeStatus(_prescriptionHash);
 
             // Update wholesaler's balance with pharmacy price
             balances[p.wholesalerAddr] += med.pharmacyPrice;
@@ -243,7 +244,7 @@ contract RxData is RxDataBase, AccessControl {
 
             // Update prescription information
             p.patientAddr = msg.sender;
-            upgradeStatus(_prescriptionId);
+            upgradeStatus(_prescriptionHash);
 
             // Update pharmacy's balance with patient price
             balances[p.pharmacyAddr] += med.patientPrice;
@@ -267,15 +268,15 @@ contract RxData is RxDataBase, AccessControl {
     /**
      * Upgrade status of Prescription
      */
-    function upgradeStatus(uint256 _prescriptionId) internal {
-        Prescription storage p = prescriptions[_prescriptionId];
+    function upgradeStatus(bytes32 _prescriptionHash) internal {
+        Prescription storage p = prescriptions[_prescriptionHash];
 
         // Mark the PrescriptionStatus as the next status
         p.prescriptionStatus = PrescriptionStatus(uint(p.prescriptionStatus) + 1);
     }
 
-    function getPrescriptionStatus(uint256 _prescriptionId) view external returns (bytes32) {
-        Prescription memory p = prescriptions[_prescriptionId];
+    function getPrescriptionStatus(bytes32 _prescriptionHash) view external returns (bytes32) {
+        Prescription memory p = prescriptions[_prescriptionHash];
 
         if (p.prescriptionStatus == PrescriptionStatus.AT_MANUFACTURER) {
             return "At Manufacturer";

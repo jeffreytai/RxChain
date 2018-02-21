@@ -1,8 +1,9 @@
 pragma solidity 0.4.19;
 
 import "./Ownable.sol";
+import "./Utils.sol";
 
-contract AccessControl is Ownable {
+contract AccessControl is Ownable, Utils {
 
     address[] public authorized;
     bool private stopped = false;
@@ -20,6 +21,28 @@ contract AccessControl is Ownable {
         }
         require(isAuthorized);
         _;
+    }
+
+    /**
+     * Add specified address to list of authorized
+     */
+    function addAuthorizedUser(address _addr) onlyOwner public {
+        if (_addr != address(0)) {
+            for (uint index=0; index<authorized.length; index++) {
+                if (authorized[index] == _addr) {
+                    return;
+                }
+            }
+            authorized.push(_addr);
+        }
+    }
+
+    /**
+     * Return a specific address from the authorized list as a string
+     */
+    function getAuthorized(uint _index) public view returns (bytes) {
+        address authorizedUser = authorized[_index];
+        return addressToBytes(authorizedUser);
     }
 
     /**

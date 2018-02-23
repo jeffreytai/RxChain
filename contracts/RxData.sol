@@ -7,7 +7,7 @@ import "./SafeMath.sol";
 contract RxData is RxDataBase, AccessControl {
 
     // Member variables
-    uint256 totalMedication;
+    uint256 public totalMedication;
 
     // Entity mappings
     mapping(address => Manufacturer) public manufacturers;
@@ -32,8 +32,8 @@ contract RxData is RxDataBase, AccessControl {
         _;
     }
 
-    modifier onlyPharmacyOrPatient (address _addr) {
-        require (pharmacies[_addr].addr != address(0) || patients[_addr].addr != address(0));
+    modifier onlyManufacturerOrPatient (address _addr) {
+        require (manufacturers[_addr].addr != address(0) || patients[_addr].addr != address(0));
         _;
     }
 
@@ -145,6 +145,7 @@ contract RxData is RxDataBase, AccessControl {
             _wholesalePrice,
             _pharmacyPrice,
             _patientPrice);
+
         medications[totalMedication] = m;
 
         // Increment counter for the total number of medications
@@ -165,10 +166,10 @@ contract RxData is RxDataBase, AccessControl {
         uint64 _manufactureCreationDate,
         uint64 _wholesaleReceiptDate,
         uint64 _pharmacyReceiptDate,
-        uint64 _patientReceiptDate) onlyPharmacy(msg.sender) external {
+        uint64 _patientReceiptDate) onlyManufacturer(msg.sender) external returns (bytes32) {
 
         // Change this to keccak hash
-        bytes32 prescriptionHash = keccak256(now, _patientAddr, _medicationId);
+        bytes32 prescriptionHash = keccak256(block.timestamp, _medicationId, totalMedication);
 
         Prescription memory p = Prescription(
             prescriptionHash,
@@ -184,9 +185,11 @@ contract RxData is RxDataBase, AccessControl {
             _patientReceiptDate);
 
         prescriptions[prescriptionHash] = p;
+
+        return prescriptionHash;
     }
 
-    function removePrescription(bytes32 _prescriptionHash) external onlyPharmacyOrPatient(msg.sender) {
+    function removePrescription(bytes32 _prescriptionHash) external onlyManufacturerOrPatient(msg.sender) {
         delete prescriptions[_prescriptionHash];
     }
 

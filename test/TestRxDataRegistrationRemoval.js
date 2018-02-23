@@ -11,13 +11,6 @@ contract('RxData', (accounts) => {
     var pharmacyAddr = accounts[4];
     var patientAddr = accounts[5];
 
-    console.log(`owner: ${owner}`);
-    console.log(`authorizedAddr: ${authorizedAddr}`);
-    console.log(`manufacturerAddr: ${manufacturerAddr}`);
-    console.log(`wholesalerAddr: ${wholesalerAddr}`);
-    console.log(`pharmacyAddr: ${pharmacyAddr}`);
-    console.log(`patientAddr: ${patientAddr}`);
-
     it("should register manufacturer", function() {
         var contract;
 
